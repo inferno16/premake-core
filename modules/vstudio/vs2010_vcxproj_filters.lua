@@ -18,6 +18,7 @@
 	function m.generateFilters(prj)
 		m.xmlDeclaration()
 		m.filtersProject()
+		m.generateFilterExtensions(prj)
 		m.uniqueIdentifiers(prj)
 		m.filterGroups(prj)
 		p.out('</Project>')
@@ -43,7 +44,33 @@
 		end
 	end
 
+--
+-- Generates a string containing the wildcarded extensions that can 
+-- later be added between <Extensions> tags in the filter file
+--
 
+	function m.generateFilterExtensions(prj)
+		local vpaths = prj.vpaths
+		local extensions = {}
+		
+		for _, vpath in pairs(vpaths) do
+			for name, data in pairs(vpath) do
+				extensions[name] = {}
+				local tbl = extensions[name]
+				tbl.extensionString = ""
+				for i, path in ipairs(data) do
+					local ext = string.match(path, "%*%.(.+)$") -- /\*\.(.+)$/ - captures wildcard extensions
+					if ext and not tbl[ext] then -- if it matches the pattern and is not yet added
+						tbl.extensionString = tbl.extensionString .. iif(tbl.extensionString == "", ext, ";" .. ext)
+						tbl[ext] = 1 -- used for avoiding duplicates
+					end
+				end
+				-- setting the top level value to the string or nil if empty (removing the duplicates LUT)
+				extensions[name] = iif(tbl.extensionString ~= "", tbl.extensionString, nil)
+			end
+		end
+		prj.filterExtensions = extensions
+	end
 
 --
 -- The first portion of the filters file assigns unique IDs to each
@@ -57,8 +84,12 @@
 			p.push()
 			tree.traverse(tr, {
 				onbranch = function(node, depth)
-					p.push('<Filter Include="%s">', path.translate(node.path, '\\'))
+					local filterName = path.translate(node.path, '\\')
+					p.push('<Filter Include="%s">', filterName)
 					p.w('<UniqueIdentifier>{%s}</UniqueIdentifier>', os.uuid(node.path))
+					if(prj.filterExtensions and prj.filterExtensions[filterName]) then
+						p.w("<Extensions>%s</Extensions>", prj.filterExtensions[filterName])
+					end
 					p.pop('</Filter>')
 				end
 			}, false)
